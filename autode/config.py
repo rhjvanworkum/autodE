@@ -178,12 +178,11 @@ class _ConfigClass:
         # Path can be unset and will be assigned if it can be found in $PATH
         path = None
 
-        keywords = KeywordsSet(low_opt=['LooseOpt', pbe0, rijcosx, d3bj,
-                                        def2svp, 'def2/J', MaxOptCycles(10)],
+        keywords = KeywordsSet(low_opt=['LooseOpt', pbe0, rijcosx, d3bj, def2svp, 'def2/J', MaxOptCycles(10)],
                                grad=['EnGrad', pbe0, rijcosx, d3bj, def2svp, 'def2/J'],
                                low_sp=['SP', pbe0, rijcosx, d3bj, def2svp, 'def2/J'],
                                opt=['Opt', pbe0, rijcosx, d3bj, def2svp, 'def2/J'],
-                               opt_ts=['OptTS', 'Freq', pbe0, rijcosx, d3bj, def2svp, 'def2/J'],
+                               opt_ts=['OptTS', 'Freq', pbe0, rijcosx, d3bj, def2svp, 'def2/J', MaxOptCycles(10)],
                                hess=['Freq', pbe0, rijcosx, d3bj, def2svp, 'def2/J'],
                                sp=['SP', pbe0, rijcosx, d3bj, def2tzvp, 'def2/J'],
                                optts_block=('%geom\n'
