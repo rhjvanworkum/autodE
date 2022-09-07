@@ -759,10 +759,15 @@ class Species(AtomCollection):
         keywords = keywords if keywords is not None else method.keywords.opt
         logger.info(f'Using keywords: {keywords} to optimise with {method}')
 
+        if self.n_atoms < 2:
+            keywords = SinglePointKeywords(keywords)
+        else:
+            keywords = OptKeywords(keywords)
+
         calc = Calculation(name=f'{self.name}_opt',
                            molecule=self,
                            method=method,
-                           keywords=OptKeywords(keywords),
+                           keywords=keywords,
                            n_cores=Config.n_cores if n_cores is None else n_cores)
 
         return calc
