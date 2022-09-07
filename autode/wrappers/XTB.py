@@ -3,7 +3,7 @@ import shutil
 import numpy as np
 from autode.wrappers.base import ElectronicStructureMethod
 from autode.utils import run_external
-from autode.wrappers.keywords import OptKeywords, GradientKeywords
+from autode.wrappers.keywords import HessianKeywords, OptKeywords, GradientKeywords
 from autode.atoms import Atom
 from autode.config import Config
 from autode.constants import Constants
@@ -151,6 +151,8 @@ class XTB(ElectronicStructureMethod):
 
         elif isinstance(calc.input.keywords, GradientKeywords):
             flags.append('--grad')
+            
+        flags.append('--bhess')
 
         if calc.molecule.solvent is not None:
             flags += ['--gbsa', calc.molecule.solvent.xtb]
@@ -161,7 +163,7 @@ class XTB(ElectronicStructureMethod):
             flags += ['--input', calc.input.additional_filenames[-1]]
 
         @work_in_tmp_dir(filenames_to_copy=calc.input.filenames,
-                         kept_file_exts=('.xyz', '.out', '.pc', '.grad'),
+                         kept_file_exts=('.xyz', '.out', '.pc', '.grad', 'hessian'),
                          use_ll_tmp=True)
         @run_in_tmp_environment(OMP_NUM_THREADS=calc.n_cores,
                                 GFORTRAN_UNBUFFERED_ALL=1)
@@ -175,6 +177,7 @@ class XTB(ElectronicStructureMethod):
                 shutil.move('gradient', f'{calc.name}_OLD.grad')
 
         execute_xtb()
+
         return None
 
     def calculation_terminated_normally(self, calc):
@@ -299,7 +302,21 @@ class XTB(ElectronicStructureMethod):
                 break
 
         if len(atoms) == 0:
-            raise AtomsNotFound
+            with open('xtbopt.xyz') as f:
+                lines = f.readlines()
+                atoms = []
+                for line in lines:
+                    if len(line.split()) == 4:
+                        atom_label, x, y, z,  = line.split()
+
+                        atom = Atom(atom_label,
+                                    x=float(x) * Constants.a0_to_ang,
+                                    y=float(y) * Constants.a0_to_ang,
+                                    z=float(z) * Constants.a0_to_ang)
+
+                        atoms.append(atom)
+            # return atoms
+            # raise AtomsNotFound
 
         return atoms
 
@@ -346,5 +363,22 @@ class XTB(ElectronicStructureMethod):
         gradients = [grad / Constants.a0_to_ang for grad in gradients]
         return np.array(gradients)
 
+    def get_hessian(self, calc):
+        hessian = []
+
+        if os.path.exists('hessian'):
+            with open('hessian') as f:
+                lines = f.readlines()
+                for line in lines:
+                    elements = line.split()
+                    elements = filter(lambda x: '$hessian' not in x, elements)
+                    hessian.extend(elements)
+
+        hessian = [float(el) for el in hessian]
+        hessian = np.array(hessian)
+        hessian = hessian.reshape(int(np.sqrt(len(hessian))), int(np.sqrt(len(hessian))))
+        logger.warning(hessian.shape)
+
+        return hessian
 
 xtb = XTB()
