@@ -10,6 +10,9 @@ location = os.path.abspath(__file__)
 
 
 class _ConfigClass:
+    # use TS reoptimization
+    ts_reoptimization = False
+
     # -------------------------------------------------------------------------
     # Total number of cores available
     #

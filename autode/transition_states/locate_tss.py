@@ -3,6 +3,7 @@ from scipy.optimize import minimize
 from autode.exceptions import NoMapping
 from autode.species import Complex
 from autode.transition_states import TransitionState, TransitionStates
+from autode.transition_states.templates import get_ts_templates, template_matches
 from autode.transition_states.truncation import get_truncated_species
 from autode.transition_states.truncation import is_worth_truncating
 from autode.transition_states.ts_guess import get_template_ts_guess
@@ -12,7 +13,7 @@ from autode.log import logger
 from autode.methods import get_hmethod
 from autode.methods import get_lmethod
 from autode.utils import work_in
-from autode.mol_graphs import get_mapping
+from autode.mol_graphs import get_mapping, get_truncated_active_mol_graph
 from autode.mol_graphs import reac_graph_to_prod_graph
 from autode.bonds import FormingBond, BreakingBond
 from autode.path.adaptive import get_ts_adaptive_path
@@ -252,28 +253,50 @@ def get_ts(name, reactant, product, bond_rearr, is_truncated=False):
 
     # There are multiple methods of finding a transition state. Iterate through
     # from the cheapest -> most expensive
-    for func, params in ts_guess_funcs_prms(name, reactant, product, bond_rearr):
-        logger.info(f'Trying to find a TS guess with {func.__name__}')
-        ts_guess = func(*params)
+    
+    # if template is available -> template
+    # if not -> NEB
+    # This will add edges so don't modify in place
+    mol_graph = get_truncated_active_mol_graph(graph=reactant.graph,
+                                               active_bonds=bond_rearr.all)
+    use_template = False
+    for ts_template in get_ts_templates():
+        if template_matches(reactant=reactant,
+                            ts_template=ts_template,
+                            truncated_graph=mol_graph):
+            use_template = True
+            break
 
-        if ts_guess is None:
-            continue
+    # prepare params
+    r, p = reactant.copy(), product.copy()  # Reactants/products may be edited
+    lmethod, hmethod = get_lmethod(), get_hmethod()
+    for i, pair in enumerate(bond_rearr.bbonds):
+        bond_rearr.bbonds[i] = BreakingBond(pair, r, p)
+    for i, pair in enumerate(bond_rearr.fbonds):
+        bond_rearr.fbonds[i] = FormingBond(pair, r, p)
+    
+    func, params = get_ts_adaptive_path, (r, p, lmethod, bond_rearr, f'{name}_hl_ad_{bond_rearr}')
+    
+    # for func, params in ts_guess_funcs_prms(name, reactant, product, bond_rearr):
+    logger.info(f'Trying to find a TS guess with {func.__name__}')
+    ts_guess = func(*params)
 
-        if not ts_guess.could_have_correct_imag_mode:
-            continue
+    if ts_guess is None:
+        return None
 
-        # Form a transition state object and run an OptTS calculation
-        ts = TransitionState(ts_guess, bond_rearr=bond_rearr)
-        ts.optimise()
+    # if not ts_guess.could_have_correct_imag_mode:
+    #     return None
 
-        if not ts.is_true_ts:
-            continue
+    # Form a transition state object and run an OptTS calculation
+    ts = TransitionState(ts_guess, bond_rearr=bond_rearr)
+    ts.optimise()
 
-        # Save a transition state template if specified in the config
-        if Config.make_ts_template:
-            ts.save_ts_template(folder_path=Config.ts_template_folder_path)
+    # if not ts.is_true_ts:
+    #     return None
 
-        logger.info(f'Found a transition state with {func.__name__}')
-        return ts
+    # # Save a transition state template if specified in the config
+    # if Config.make_ts_template:
+    #     ts.save_ts_template(folder_path=Config.ts_template_folder_path)
 
-    return None
+    logger.info(f'Found a transition state with {func.__name__}')
+    return ts

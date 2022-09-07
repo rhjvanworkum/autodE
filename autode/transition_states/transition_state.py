@@ -94,8 +94,9 @@ class TransitionState(TSbase):
                                  other_input_block=method.keywords.optts_block)
         optts_calc.run()
 
-        if not optts_calc.optimisation_converged():
-            optts_calc = self._reoptimise(optts_calc, name_ext, method)
+        if Config.ts_reoptimization:
+            if not optts_calc.optimisation_converged():
+                optts_calc = self._reoptimise(optts_calc, name_ext, method)
 
         try:
             self.atoms = optts_calc.get_final_atoms()
@@ -224,30 +225,31 @@ class TransitionState(TSbase):
                            'other modes')
             return
 
-        # There is more than one imaginary frequency. Will assume that the most
-        # negative is the correct mode..
-        for disp_magnitude, ext in zip([1, -1], ['_dis', '_dis2']):
-            logger.info('Displacing along second imaginary mode to try and '
-                        'remove')
+        if Config.ts_reoptimization:
+            # There is more than one imaginary frequency. Will assume that the most
+            # negative is the correct mode..
+            for disp_magnitude, ext in zip([1, -1], ['_dis', '_dis2']):
+                logger.info('Displacing along second imaginary mode to try and '
+                            'remove')
 
-            disp_ts = self.copy()
-            disp_ts.atoms = displaced_species_along_mode(self,
-                                                         mode_number=7,
-                                                         disp_factor=disp_magnitude).atoms
+                disp_ts = self.copy()
+                disp_ts.atoms = displaced_species_along_mode(self,
+                                                            mode_number=7,
+                                                            disp_factor=disp_magnitude).atoms
 
-            disp_ts._run_opt_ts_calc(method=get_hmethod(),
-                                     name_ext=name_ext + ext)
+                disp_ts._run_opt_ts_calc(method=get_hmethod(),
+                                        name_ext=name_ext + ext)
 
-            if (self.has_imaginary_frequencies
-                    and len(self.imaginary_frequencies) == 1):
-                logger.info('Displacement along second imaginary mode '
-                            'successful. Now have 1 imaginary mode')
+                if (self.has_imaginary_frequencies
+                        and len(self.imaginary_frequencies) == 1):
+                    logger.info('Displacement along second imaginary mode '
+                                'successful. Now have 1 imaginary mode')
 
-                # Set the new properties of this TS from a successful reopt
-                self.atoms = disp_ts.atoms
-                self.energy = disp_ts.energy
-                self._hess = disp_ts.hessian
-                break
+                    # Set the new properties of this TS from a successful reopt
+                    self.atoms = disp_ts.atoms
+                    self.energy = disp_ts.energy
+                    self._hess = disp_ts.hessian
+                    break
 
         return None
 
