@@ -142,7 +142,7 @@ class Molecule(Species):
         return None
 
     @requires_atoms
-    def _generate_conformers(self, n_confs: Optional[int] = None):
+    def _generate_conformers(self, n_confs: Optional[int] = None, random_seed: int = 42):
         """
         Use a simulated annealing approach to generate conformers for this
         molecule.
@@ -167,6 +167,7 @@ class Molecule(Species):
             method.pruneRmsThresh = Config.rmsd_threshold
             method.numThreads = Config.n_cores
             method.useSmallRingTorsion = True
+            method.randomSeed = random_seed
 
             logger.info(
                 "Running conformation generation with RDKit... running"
