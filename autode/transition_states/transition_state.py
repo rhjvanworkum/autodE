@@ -3,23 +3,27 @@ from multiprocessing import Pool
 from autode.values import Frequency
 from autode.transition_states.base import displaced_species_along_mode
 from autode.transition_states.base import TSbase
+from autode.transition_states.ts_guess import TSguess
 from autode.transition_states.templates import TStemplate
 from autode.input_output import atoms_to_xyz_file
-from autode.calculation import Calculation
+from autode.calculations import Calculation
 from autode.config import Config
 from autode.exceptions import CalculationException
-from autode.geom import get_distance_constraints, calc_heavy_atom_rmsd
+from autode.geom import calc_heavy_atom_rmsd
 from autode.log import logger
 from autode.methods import get_hmethod
-from autode.mol_graphs import set_active_mol_graph, get_truncated_active_mol_graph
+from autode.mol_graphs import get_truncated_active_mol_graph
 from autode.utils import requires_atoms, requires_graph
 
 
 class TransitionState(TSbase):
-
-    def __init__(self,
-                 ts_guess:   TSbase,
-                 bond_rearr: Optional['autode.bond_rearrangement.BondRearrangement'] = None):
+    def __init__(
+        self,
+        ts_guess: TSbase,
+        bond_rearr: Optional[
+            "autode.bond_rearrangement.BondRearrangement"
+        ] = None,
+    ):
         """
         Transition State
 
@@ -30,24 +34,30 @@ class TransitionState(TSbase):
         Keyword Arguments:
             bond_rearr (autode.bond_rearrangement.BondRearrangement):
         """
-        super().__init__(atoms=ts_guess.atoms,
-                         reactant=ts_guess.reactant,
-                         product=ts_guess.product,
-                         name=f'TS_{ts_guess.name}',
-                         charge=ts_guess.charge,
-                         bond_rearr=ts_guess.bond_rearrangement,
-                         mult=ts_guess.mult)
+        super().__init__(
+            atoms=ts_guess.atoms,
+            reactant=ts_guess.reactant,
+            product=ts_guess.product,
+            name=f"TS_{ts_guess.name}",
+            charge=ts_guess.charge,
+            bond_rearr=ts_guess.bond_rearrangement,
+            mult=ts_guess.mult,
+        )
+
+        self.energy = ts_guess.energy
+        self.gradient = ts_guess.gradient
+        self.hessian = ts_guess.hessian
 
         if bond_rearr is not None:
             self.bond_rearrangement = bond_rearr
 
+        self.solvent = ts_guess.solvent
         self._update_graph()
 
-        #: str for any warnings that may arise
-        self.warnings = ''
+        self.warnings = ""  #: str for any warnings that may arise
 
     def __repr__(self):
-        return self._repr(prefix='TransitionState')
+        return self._repr(prefix="TransitionState")
 
     def __eq__(self, other):
         """Equality of this TS to another"""
@@ -58,53 +68,36 @@ class TransitionState(TSbase):
         """Update the molecular graph to include all the bonds that are being
         made/broken"""
         if self.bond_rearrangement is None:
-            logger.warning('Bond rearrangement not set - molecular graph '
-                           'updating with no active bonds')
-            active_bonds = []
-
+            logger.warning(
+                "Bond rearrangement not set - molecular graph "
+                "updating with no active bonds"
+            )
         else:
-            active_bonds = self.bond_rearrangement.all
+            for bond in self.bond_rearrangement.all:
+                self.graph.add_active_edge(*bond)
 
-        set_active_mol_graph(species=self, active_bonds=active_bonds)
-
-        logger.info(f'Molecular graph updated with active bonds')
+        logger.info(f"Molecular graph updated with active bonds")
         return None
-
-    @property
-    def _active_bonds(self) -> Optional[list]:
-        """Active bonds that are present in the associated bond rearrangement"""
-
-        if self.bond_rearrangement is None:
-            logger.warning('Cannot add redundant internal coordinates for the '
-                           'active bonds with no bond rearrangement')
-            return None
-
-        return self.bond_rearrangement.all
 
     def _run_opt_ts_calc(self, method, name_ext):
         """Run an optts calculation and attempt to set the geometry, energy and
-         normal modes"""
+        normal modes"""
 
-        optts_calc = Calculation(name=f'{self.name}_{name_ext}',
-                                 molecule=self,
-                                 method=method,
-                                 n_cores=Config.n_cores,
-                                 keywords=method.keywords.opt_ts,
-                                 bond_ids_to_add=self._active_bonds,
-                                 other_input_block=method.keywords.optts_block)
-        optts_calc.run()
-
-        if Config.ts_reoptimization:
-            if not optts_calc.optimisation_converged():
-                optts_calc = self._reoptimise(optts_calc, name_ext, method)
-
+        optts_calc = Calculation(
+            name=f"{self.name}_{name_ext}",
+            molecule=self,
+            method=method,
+            n_cores=Config.n_cores,
+            keywords=method.keywords.opt_ts,
+        )
         try:
-            self.atoms = optts_calc.get_final_atoms()
-            self.energy = optts_calc.get_energy()
-            self.hessian = optts_calc.get_hessian()
+            optts_calc.run()
+
+            if not optts_calc.optimisation_converged():
+                self._reoptimise(optts_calc, name_ext, method)
 
         except CalculationException:
-            logger.error('Transition state optimisation calculation failed')
+            logger.error("Transition state optimisation calculation failed")
 
         return
 
@@ -112,46 +105,51 @@ class TransitionState(TSbase):
         """Rerun a calculation for more steps"""
 
         if not calc.optimisation_nearly_converged():
-            self.warnings += f'TS for {self.name} was not fully converged.'
-            logger.info('Optimisation did not converge')
+            self.warnings += f"TS for {self.name} was not fully converged."
+            logger.info("Optimisation did not converge")
             return calc
 
-        logger.info('Optimisation nearly converged')
+        logger.info("Optimisation nearly converged")
         if self.could_have_correct_imag_mode:
-            logger.info('Still have correct imaginary mode, trying '
-                        'more  optimisation steps')
+            logger.info(
+                "Still have correct imaginary mode, trying "
+                "more  optimisation steps"
+            )
 
             self.atoms = calc.get_final_atoms()
-            calc = Calculation(name=f'{self.name}_{name_ext}_reopt',
-                               molecule=self,
-                               method=method,
-                               n_cores=Config.n_cores,
-                               keywords=method.keywords.opt_ts,
-                               bond_ids_to_add=self._active_bonds,
-                               other_input_block=method.keywords.optts_block)
+            calc = Calculation(
+                name=f"{self.name}_{name_ext}_reopt",
+                molecule=self,
+                method=method,
+                n_cores=Config.n_cores,
+                keywords=method.keywords.opt_ts,
+            )
             calc.run()
         else:
-            logger.info('Lost imaginary mode')
+            logger.info("Lost imaginary mode")
 
         return calc
 
     def _generate_conformers(self, n_confs=None):
-        """Generate conformers at the TS """
+        """Generate conformers at the TS"""
         from autode.conformers.conf_gen import get_simanl_conformer
 
         n_confs = Config.num_conformers if n_confs is None else n_confs
         self.conformers = []
 
-        distance_consts = get_distance_constraints(self)
+        distance_consts = self.active_bond_constraints
 
         with Pool(processes=Config.n_cores) as pool:
-            results = [pool.apply_async(get_simanl_conformer,
-                                        args=(self, distance_consts, i))
-                       for i in range(n_confs)]
+            results = [
+                pool.apply_async(
+                    get_simanl_conformer, args=(self, distance_consts, i)
+                )
+                for i in range(n_confs)
+            ]
 
             self.conformers = [res.get(timeout=None) for res in results]
 
-        self.conformers.prune(e_tol=1E-6)
+        self.conformers.prune(e_tol=1e-6)
         return None
 
     @property
@@ -183,12 +181,12 @@ class TransitionState(TSbase):
 
         disp = -0.5
         for i in range(40):
-            disp_ts = displaced_species_along_mode(self,
-                                                   mode_number=int(mode_number),
-                                                   disp_factor=disp)
-            atoms_to_xyz_file(atoms=disp_ts.atoms,
-                              filename=f'{name}.xyz',
-                              append=True)
+            disp_ts = displaced_species_along_mode(
+                self, mode_number=int(mode_number), disp_factor=disp
+            )
+            atoms_to_xyz_file(
+                atoms=disp_ts.atoms, filename=f"{name}.xyz", append=True
+            )
 
             # Add displacement so the final set of atoms are +0.5 Å displaced
             # along the mode, then displaced back again
@@ -198,92 +196,111 @@ class TransitionState(TSbase):
         return None
 
     @requires_atoms
-    def optimise(self,
-                 name_ext='optts',
-                 method=None,
-                 reset_graph=False,
-                 calc=None,
-                 keywords=None):
-        """Optimise this TS to a true TS """
-        logger.info(f'Optimising {self.name} to a transition state')
+    def optimise(
+        self,
+        name_ext="optts",
+        method=None,
+        reset_graph=False,
+        calc=None,
+        keywords=None,
+    ):
+        """Optimise this TS to a true TS"""
+        logger.info(f"Optimising {self.name} to a transition state")
 
         self._run_opt_ts_calc(method=get_hmethod(), name_ext=name_ext)
 
         # A transition state is a first order saddle point i.e. has a single
         # imaginary frequency
         if not self.has_imaginary_frequencies:
-            logger.error('Transition state optimisation did not return any '
-                         'imaginary frequencies')
+            logger.error(
+                "Transition state optimisation did not return any "
+                "imaginary frequencies"
+            )
             return
 
         if len(self.imaginary_frequencies) == 1:
-            logger.info('Found a TS with a single imaginary frequency')
+            logger.info("Found a TS with a single imaginary frequency")
             return
 
         if all([freq > -50 for freq in self.imaginary_frequencies[1:]]):
-            logger.warning('Had small imaginary modes - not displacing along '
-                           'other modes')
+            logger.warning(
+                "Had small imaginary modes - not displacing along "
+                "other modes"
+            )
             return
 
-        if Config.ts_reoptimization:
-            # There is more than one imaginary frequency. Will assume that the most
-            # negative is the correct mode..
-            for disp_magnitude, ext in zip([1, -1], ['_dis', '_dis2']):
-                logger.info('Displacing along second imaginary mode to try and '
-                            'remove')
+        # There is more than one imaginary frequency. Will assume that the most
+        # negative is the correct mode..
+        for disp_magnitude, ext in zip([1, -1], ["_dis", "_dis2"]):
+            logger.info(
+                "Displacing along second imaginary mode to try and " "remove"
+            )
 
-                disp_ts = self.copy()
-                disp_ts.atoms = displaced_species_along_mode(self,
-                                                            mode_number=7,
-                                                            disp_factor=disp_magnitude).atoms
+            disp_ts = self.copy()
+            disp_ts.atoms = displaced_species_along_mode(
+                self, mode_number=7, disp_factor=disp_magnitude
+            ).atoms
 
-                disp_ts._run_opt_ts_calc(method=get_hmethod(),
-                                        name_ext=name_ext + ext)
+            disp_ts._run_opt_ts_calc(
+                method=get_hmethod(), name_ext=name_ext + ext
+            )
 
-                if (self.has_imaginary_frequencies
-                        and len(self.imaginary_frequencies) == 1):
-                    logger.info('Displacement along second imaginary mode '
-                                'successful. Now have 1 imaginary mode')
+            if (
+                self.has_imaginary_frequencies
+                and len(self.imaginary_frequencies) == 1
+            ):
+                logger.info(
+                    "Displacement along second imaginary mode "
+                    "successful. Now have 1 imaginary mode"
+                )
 
-                    # Set the new properties of this TS from a successful reopt
-                    self.atoms = disp_ts.atoms
-                    self.energy = disp_ts.energy
-                    self._hess = disp_ts.hessian
-                    break
+                # Set the new properties of this TS from a successful reopt
+                self.atoms = disp_ts.atoms
+                self.energy = disp_ts.energy
+                self._hess = disp_ts.hessian
+                break
 
         return None
 
     def find_lowest_energy_ts_conformer(self, rmsd_threshold=None):
         """Find the lowest energy transition state conformer by performing
         constrained optimisations"""
-        logger.info('Finding lowest energy TS conformer')
+        logger.info("Finding lowest energy TS conformer")
 
         # Generate a copy of this TS on which conformers are searched, for
         # easy reversion
         _ts = self.copy()
+        _ts.hessian, _ts.gradient, _ts.energy = None, None, None
 
         hmethod = get_hmethod() if Config.hmethod_conformers else None
         _ts.find_lowest_energy_conformer(hmethod=hmethod)
 
         # Remove similar TS conformer that are similar to this TS based on root
         # mean squared differences in their structures being above a threshold
-        t_h = Config.rmsd_threshold if rmsd_threshold is None else rmsd_threshold
-        _ts.conformers = [conf for conf in _ts.conformers if
-                          calc_heavy_atom_rmsd(conf.atoms, self.atoms) > t_h]
+        t_h = (
+            Config.rmsd_threshold if rmsd_threshold is None else rmsd_threshold
+        )
+        _ts.conformers = [
+            conf
+            for conf in _ts.conformers
+            if calc_heavy_atom_rmsd(conf.atoms, self.atoms) > t_h
+        ]
 
-        logger.info(f'Generated {len(_ts.conformers)} unique (RMSD > '
-                    f'{t_h} Å) TS conformer(s)')
+        logger.info(
+            f"Generated {len(_ts.conformers)} unique (RMSD > "
+            f"{t_h} Å) TS conformer(s)"
+        )
 
         if len(_ts.conformers) == 0:
-            logger.info('Had no conformers - no need to re-optimise')
+            logger.info("Had no conformers - no need to re-optimise")
             return
 
         # Optimise the lowest energy conformer to a transition state - will
         # .find_lowest_energy_conformer will have updated self.atoms etc.
-        _ts.optimise(name_ext='optts_conf')
+        _ts.optimise(name_ext="optts_conf")
 
         if _ts.is_true_ts and _ts.energy < self.energy:
-            logger.info('Conformer search successful - setting new attributes')
+            logger.info("Conformer search successful - setting new attributes")
 
             self.atoms = _ts.atoms
             self.energies = _ts.energies
@@ -292,8 +309,10 @@ class TransitionState(TSbase):
 
         # Ensure the energy has a numerical value
         _ts.energy = _ts.energy if _ts.energy is not None else 0
-        logger.warning(f'Transition state conformer search failed '
-                       f'(∆E = {_ts.energy - self.energy:.4f} Ha). Reverting')
+        logger.warning(
+            f"Transition state conformer search failed "
+            f"(∆E = {_ts.energy - self.energy:.4f} Ha). Reverting"
+        )
         return None
 
     @property
@@ -302,12 +321,14 @@ class TransitionState(TSbase):
         hessian and is the correct mode"""
 
         if self.energy is None:
-            logger.warning('Cannot be true TS with no energy')
+            logger.warning("Cannot be true TS with no energy")
             return False
 
         if self.has_imaginary_frequencies and self.has_correct_imag_mode:
-            logger.info('Found a transition state with the correct '
-                        'imaginary mode & links reactants and products')
+            logger.info(
+                "Found a transition state with the correct "
+                "imaginary mode & links reactants and products"
+            )
             return True
 
         return False
@@ -323,18 +344,36 @@ class TransitionState(TSbase):
             (default: {None})
         """
         if self.bond_rearrangement is None:
-            raise ValueError('Cannot save a TS template without a bond '
-                             'rearrangement')
+            raise ValueError(
+                "Cannot save a TS template without a bond " "rearrangement"
+            )
 
-        logger.info(f'Saving TS template for {self.name}')
+        logger.info(f"Saving TS template for {self.name}")
 
         truncated_graph = get_truncated_active_mol_graph(self.graph)
 
         for bond in self.bond_rearrangement.all:
-            truncated_graph.edges[bond]['distance'] = self.distance(*bond)
+            truncated_graph.edges[bond]["distance"] = self.distance(*bond)
 
         ts_template = TStemplate(truncated_graph, species=self)
         ts_template.save(folder_path=folder_path)
 
-        logger.info('Saved TS template')
+        logger.info("Saved TS template")
         return None
+
+    @classmethod
+    def from_species(
+        cls, species: "autode.species.Species"
+    ) -> "TransitionState":
+        """
+        Generate a TS from a species. Note this does not set the bond rearrangement
+        thus mode checking will not work from this species.
+
+        -----------------------------------------------------------------------
+        Arguments:
+            species:
+
+        Returns:
+            (autode.transition_states.transition_state.TransitionState): TS
+        """
+        return cls(ts_guess=TSguess.from_species(species), bond_rearr=None)

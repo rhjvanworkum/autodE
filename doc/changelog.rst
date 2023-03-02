@@ -1,6 +1,189 @@
 Changelog
 =========
 
+1.3.5
+--------
+----------
+
+
+Usability improvements/Changes
+******************************
+- :code:`autode.value.ValueArray.to()` now defaults to copying the object rather than inplace modification
+
+
+Functionality improvements
+**************************
+- Adds a :code:`to_` method to :code:`autode.value.ValueArray` for explicit inplace modification of the array
+
+
+Bug Fixes
+*********
+- Fixes :code:`ERROR` logging level being ignored from environment variable :code:`AUTODE_LOG_LEVEL`
+- Fixes :code:`autode.values.Value` instances generating items with units on division, and throw a warning if multiplying
+- Fixes the printing of cartesian constraints in XTB input files, meaning they are no longer ignored
+- Fixes :code:`Hessian` instances changing units when normal modes are calculated
+- Fixes an incorrect alias for :code:`ev_per_ang`
+
+
+1.3.4
+--------
+----------
+
+Feature additions.
+
+Usability improvements/Changes
+******************************
+* Throw useful exception for invalid :code:`ade.Config.ts_template_folder_path`
+
+
+Functionality improvements
+**************************
+- Adds :code:`ade.transition_states.TransitionState.from_species` method to construct transition states from a species or molecule
+- Adds :code:`autode.Reaction.save()` and :code:`autode.Reaction.load()` to save and reload a reaction state
+- Adds saving checkpoints of a reaction during :code:`autode.Reaction.calculate_reaction_profile`
+
+
+Bug Fixes
+*********
+- Fixes calculation :code:`clean_up()` failing with a null filename
+
+
+1.3.3
+--------
+----------
+
+Bugfix release.
+
+
+Functionality improvements
+**************************
+- Adds skipping Hessian re-evaluation when using autodE optimisers if a molecules has a Hessian calculated at the same level of theory
+- Adds a Hessian recalculation frequency to :code:`autode.optimisers.PRFOptimiser`
+- Improves the default step size for TS optimising to be consistent with the ORCA default
+
+Bug Fixes
+*********
+- Adds checking of SMILES-defined charge against the user-specified value
+- Fixes :code:`autode.optimisers.CRFOptimiser` building incomplete internal coordinates for partially or completely fragmented molecules
+
+
+1.3.2
+--------
+----------
+
+Bugfix release.
+
+
+Usability improvements/Changes
+******************************
+* Removes :code:`autode.geom.get_distance_constraints` in favour of a better named method :code:`TSBase().active_bond_constraints`
+
+
+Bug Fixes
+*********
+- :code:`autode.transition_states.ts_guess.TSguess.from_species` now inherits solvent from the species
+- Fixes a possible race condition in I/O for XTB conformer optimisations
+
+
+1.3.1
+--------
+----------
+
+Bugfix release.
+
+
+Bug Fixes
+*********
+- Fixes behaviour of :code:`autode.utils.work_in_tmp_dir` and :code:`autode.utils.work_in` decorators
+- Fixes an exception being raised when :code:`autode.Calculation.clean_up` is called with a method that doesn't implement external I/O
+- Fixes autodE driven optimisations skipping execution when the input but not name changes
+
+
+1.3.0
+--------
+----------
+
+Optimisation features, graph assignment improvements and bugfixes.
+
+
+Usability improvements/Changes
+******************************
+* Defines dummy atoms to have zero covalent and vdW radii
+* Renames :code:`Method().available` to :code:`Method().is_available`
+* Removes :code:`autode.bonds.get_ideal_bond_length_matrix` and :code:`autode.bonds.get_avg_bond_length`
+* Removes :code:`autode.geom.rotate_columns`
+* Modifies the names of most optimiser classes e.g. :code:`autode.opt.optimisers.PRFOOptimiser` -> :code:`PRFOptimiser`
+* Simplifies initialising a :code:`autode.calculations.Calculation` by:
+
+  * Requiring constraints to be attributed to a molecule
+  * Removing the :code:`bond_ids_to_add` argument and using the labeled graph instead (active edges)
+  * Removing the :code:`other_input_block` argument and appending to the keywords instead
+
+* Removes :code:`autode.calculations.Calculation.print_final_output_lines` in favour of a method on :code:`calculation.output`
+* Makes many methods in :code:`autode.calculations.Calculation` private
+* Deprecates all :code:`autode.calculations.Calculation.get_<method>` methods in favour of setting properties of the input molecule
+* Returns :code:`None` rather than rasies exceptions when calling the (deprecated) calculation get methods, to be consistent with ...get_energy
+* Adds an :code:`autode.wrappers.keywords` package to improve file structure
+* Removes any exceptions on calling :code:`.run()` on an optimiser instance where the system has no degrees of freedom
+* Removes support for Python < v3.8
+* Tweaks the default ORCA TS optimisation keywords to be more conservative, i.e. slower and more accurate
+
+
+Functionality improvements
+**************************
+- Adds a :code:`autode.atoms.Atom.covalent_radius` property
+- Adds a :code:`autode.atoms.Atoms.eqm_bond_distance` method for the equilibrium bonded distance between two atoms
+- Adds vibrational frequency scaling through both :code:`autode.Config.freq_scale_factor` and a default value in wrapped functional keywords
+- Adds a *much* more robust constrained rational function constrained optimiser in delocalised internal coordinates (DIC)
+- Adds bond angle and dihedral primitive coordinates which can form part of the DIC set
+- Improves the back transformation
+- Adds an optional callback argument to :code:`autode.opt.optimisers.base.Optimiser` for running custom functions after every optimisation step
+- Adds the ability to save/reload an :code:`autode.opt.optimisers.NDOptimiser` instance to/from a file
+- Adds a solvent attribute to a :code:`autode.transition_states.transition_state.TransitionState` constructor
+- Adds functionality to partition a nudged elastic band into images where the maximum atom-atom distance between images is below a threshold
+- Adds a sequential adapt+NEB TS finding method where a pure adapt. path fails to generate a geometry close enough to the TS for a successful TS optimisation
+
+
+Bug Fixes
+*********
+- Fixes variable harmonic frequencies (<2 cm-1 differences) due to projection vectors becoming close to rotational axes
+- Fixes the extraction of atomic partial charges from ORCA output files
+- Fixes gradients and Hessians not being reset on a molecule where the coordinates change
+- Fixes unhelpful exception when calculating thermochemistry with EST methods without implemented "get_hessian" methods
+
+
+See the table below for a quick benchmark of constrained optimisations in autodE
+compared to ORCA. In all cases the structures were generated from SMILES strings (RDKit)
+and optimised with a single constraint on the (0,1) distance of +0.1 Å from its current
+value.
+
+.. list-table::
+    :header-rows: 1
+
+    * - Molecule
+      - autodE
+      - ORCA
+    * - C7H12
+      - 6
+      - 7
+    * - C3H7
+      - 8
+      - 17
+    * - C4H6
+      - 3
+      - 5
+    * - CClH3
+      - 3
+      - 4
+    * - C2H3O2
+      - 3
+      - 7
+    * - C2FH5
+      - 3
+      - 5
+    * - C4H6O2S
+      - 6
+      - 11
 
 1.2.3
 --------

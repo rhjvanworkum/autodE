@@ -1,6 +1,13 @@
 name: catch
 
-on: [push, pull_request]
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    paths-ignore:
+      - 'doc/**'
+      - 'examples/**'
 
 env:
   BUILD_TYPE: Release

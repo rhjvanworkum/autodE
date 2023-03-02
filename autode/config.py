@@ -1,11 +1,17 @@
 import os
-import autode.wrappers.implicit_solvent_types as solv
 from autode.values import Frequency, Distance, Allocation
+from autode.wrappers.keywords import implicit_solvent_types as solv
 from autode.wrappers.keywords import KeywordsSet, MaxOptCycles
-from autode.wrappers.basis_sets import def2svp, def2tzvp, def2ecp, def2tzecp
-from autode.wrappers.functionals import pbe0
-from autode.wrappers.dispersion import d3bj
-from autode.wrappers.ri import rijcosx
+from autode.wrappers.keywords.basis_sets import (
+    def2svp,
+    def2tzvp,
+    def2ecp,
+    def2tzecp,
+)
+from autode.wrappers.keywords.functionals import pbe0
+from autode.wrappers.keywords.dispersion import d3bj
+from autode.wrappers.keywords.ri import rijcosx
+
 location = os.path.abspath(__file__)
 
 
@@ -20,7 +26,7 @@ class _ConfigClass:
     # -------------------------------------------------------------------------
     # Per core memory available
     #
-    max_core = Allocation(4, units='GB')
+    max_core = Allocation(4, units="GB")
     # -------------------------------------------------------------------------
     # DFT code to use. If set to None then the highest priority available code
     # will be used:
@@ -65,7 +71,7 @@ class _ConfigClass:
     # more conformers that need to be calculated but also reduces the chance
     # that the lowest energy conformer is found
     #
-    rmsd_threshold = Distance(0.3, units='Å')
+    rmsd_threshold = Distance(0.3, units="Å")
     # -------------------------------------------------------------------------
     # Total number of conformers generated in find_lowest_energy_conformer()
     # for single molecules/TSs
@@ -74,7 +80,7 @@ class _ConfigClass:
     # -------------------------------------------------------------------------
     # Maximum random displacement in angstroms for conformational searching
     #
-    max_atom_displacement = Distance(4.0, units='Å')
+    max_atom_displacement = Distance(4.0, units="Å")
     # -------------------------------------------------------------------------
     # Number of evenly spaced points on a sphere that will be used to generate
     # NCI and Reactant and Product complex conformers. Total number of
@@ -116,8 +122,8 @@ class _ConfigClass:
     # -------------------------------------------------------------------------
     # Minimum and maximum step size to use for the adaptive path search
     #
-    min_step_size = Distance(0.05, units='Å')
-    max_step_size = Distance(0.3, units='Å')
+    min_step_size = Distance(0.05, units="Å")
+    max_step_size = Distance(0.3, units="Å")
     # -------------------------------------------------------------------------
     # Heuristic for pruning the bond rearrangement set. If there are only bond
     # rearrangements that involve small rings then TSs involving small rings
@@ -133,14 +139,14 @@ class _ConfigClass:
     # to e.g. -10 cm-1. Although most TSs have |v_imag| > 100 cm-1 this
     # threshold is designed to be conservative
     #
-    min_imag_freq = Frequency(-40, units='cm-1')
+    min_imag_freq = Frequency(-40, units="cm-1")
     # -------------------------------------------------------------------------
     # Configuration parameters for ideal gas free energy calculations. Can be
     # configured to use different standard states, quasi-rigid rotor harmonic
     # oscillator (qRRHO) or pure RRHO
     #
     #  One of: '1M', '1atm'
-    standard_state = '1M'
+    standard_state = "1M"
     #
     # Method to treat low frequency modes (LFMs). Either standard RRHO ('igm'),
     # Truhlar's method where all frequencies below a threshold are scaled to
@@ -149,17 +155,23 @@ class _ConfigClass:
     # Chem. Eur. J. 2012, 18, 9955)
     #
     # One of: 'igm', 'truhlar', 'grimme'
-    lfm_method = 'grimme'
+    lfm_method = "grimme"
     #
     # Parameters for Grimme's method (only used when lfm_method='grimme'),
     # w0 is a frequency in cm-1
-    grimme_w0 = Frequency(100, units='cm-1')
+    grimme_w0 = Frequency(100, units="cm-1")
     grimme_alpha = 4
     #
     # Parameters for Truhlar's method (only used when lfm_method='truhlar')
     # vibrational frequencies below this value (cm-1) will be shifted to this
     # value before the entropy is calculated
-    vib_freq_shift = Frequency(100, units='cm-1')
+    vib_freq_shift = Frequency(100, units="cm-1")
+    # -------------------------------------------------------------------------
+    # Frequency scale factor, useful for DFT functions known to have a
+    # systematic error. This value must be between 0 and 1 inclusive. For
+    # example, PBEh-3c has a scale factor of 0.95.
+    #
+    freq_scale_factor = None
     # -------------------------------------------------------------------------
     # Minimum number of atoms that are removed for truncation to be used in
     # locating TSs. Below this number any truncation is skipped
@@ -181,25 +193,42 @@ class _ConfigClass:
         # Path can be unset and will be assigned if it can be found in $PATH
         path = None
 
-        keywords = KeywordsSet(low_opt=['LooseOpt', pbe0, rijcosx, d3bj, def2svp, 'def2/J', MaxOptCycles(10)],
-                               grad=['EnGrad', pbe0, rijcosx, d3bj, def2svp, 'def2/J'],
-                               low_sp=['SP', pbe0, rijcosx, d3bj, def2svp, 'def2/J'],
-                               opt=['Opt', pbe0, rijcosx, d3bj, def2svp, 'def2/J'],
-                               opt_ts=['OptTS', 'Freq', pbe0, rijcosx, d3bj, def2svp, 'def2/J', MaxOptCycles(10)],
-                               hess=['Freq', pbe0, rijcosx, d3bj, def2svp, 'def2/J'],
-                               sp=['SP', pbe0, rijcosx, d3bj, def2tzvp, 'def2/J'],
-                               optts_block=('%geom\n'
-                                            'Calc_Hess true\n' 
-                                            'Recalc_Hess 30\n'
-                                            'Trust -0.1\n'
-                                            'MaxIter 150\n'
-                                            'end'),
-                               ecp=def2ecp)
+        optts_block = (
+            "\n%geom\n"
+            "Calc_Hess true\n"
+            "Recalc_Hess 20\n"
+            "Trust -0.1\n"
+            "MaxIter 100\n"
+            "end"
+        )
 
-        # A separate input block to be printed in the ORCA input file
-        # for all calculations e.g.
-        # other_input_block = '%scf\n MaxIter 1500\n end'
-        other_input_block = None
+        keywords = KeywordsSet(
+            low_opt=[
+                "LooseOpt",
+                pbe0,
+                rijcosx,
+                d3bj,
+                def2svp,
+                "def2/J",
+                MaxOptCycles(10),
+            ],
+            grad=["EnGrad", pbe0, rijcosx, d3bj, def2svp, "def2/J"],
+            low_sp=["SP", pbe0, rijcosx, d3bj, def2svp, "def2/J"],
+            opt=["Opt", pbe0, rijcosx, d3bj, def2svp, "def2/J"],
+            opt_ts=[
+                "OptTS",
+                "Freq",
+                pbe0,
+                rijcosx,
+                d3bj,
+                def2svp,
+                "def2/J",
+                optts_block,
+            ],
+            hess=["Freq", pbe0, rijcosx, d3bj, def2svp, "def2/J"],
+            sp=["SP", pbe0, rijcosx, d3bj, def2tzvp, "def2/J"],
+            ecp=def2ecp,
+        )
 
         # Implicit solvent in ORCA is either treated with CPCM or SMD, the
         # former has support for a VdW surface construction which provides
@@ -216,18 +245,22 @@ class _ConfigClass:
         # path can be unset and will be assigned if it can be found in $PATH
         path = None
         #
-        grid = 'integral=ultrafinegrid'
-        ts_str = ('Opt=(TS, CalcFC, NoEigenTest, MaxCycles=100, MaxStep=10, '
-                  'NoTrustUpdate)')
+        grid = "integral=ultrafinegrid"
+        optts_block = (
+            "Opt=(TS, CalcFC, NoEigenTest, MaxCycles=100, "
+            "MaxStep=10, NoTrustUpdate)"
+        )
 
-        keywords = KeywordsSet(low_opt=[pbe0, def2svp, 'Opt=Loose', MaxOptCycles(10), d3bj, grid],
-                               grad=[pbe0, def2svp, 'Force(NoStep)', d3bj, grid],
-                               low_sp=[pbe0, def2svp, d3bj, grid],
-                               opt=[pbe0, def2svp, 'Opt', d3bj, grid],
-                               opt_ts=[pbe0, def2svp, 'Freq', d3bj, grid, ts_str],
-                               hess=[pbe0, def2svp, 'Freq', d3bj, grid],
-                               sp=[pbe0, def2tzvp, d3bj, grid],
-                               ecp=def2tzecp)
+        keywords = KeywordsSet(
+            low_opt=[pbe0, def2svp, "Opt=Loose", MaxOptCycles(10), d3bj, grid],
+            grad=[pbe0, def2svp, "Force(NoStep)", d3bj, grid],
+            low_sp=[pbe0, def2svp, d3bj, grid],
+            opt=[pbe0, def2svp, "Opt", d3bj, grid],
+            opt_ts=[pbe0, def2svp, "Freq", d3bj, grid, optts_block],
+            hess=[pbe0, def2svp, "Freq", d3bj, grid],
+            sp=[pbe0, def2tzvp, d3bj, grid],
+            ecp=def2tzecp,
+        )
 
         # Only SMD implemented
         implicit_solvation_type = solv.smd
@@ -240,17 +273,21 @@ class _ConfigClass:
         # path can be unset and will be assigned if it can be found in $PATH
         path = None
         #
-        ts_str = ('Opt=(TS, CalcFC, NoEigenTest, MaxCycles=100, MaxStep=10, '
-                  'NoTrustUpdate, RecalcFC=30)')
+        ts_str = (
+            "Opt=(TS, CalcFC, NoEigenTest, MaxCycles=100, MaxStep=10, "
+            "NoTrustUpdate, RecalcFC=30)"
+        )
 
-        keywords = KeywordsSet(low_opt=[pbe0, def2svp, 'Opt=Loose', d3bj, MaxOptCycles(10)],
-                               grad=[pbe0, def2svp, 'Force(NoStep)', d3bj],
-                               low_sp=[pbe0, def2svp, d3bj],
-                               opt=[pbe0, def2svp, 'Opt', d3bj],
-                               opt_ts=[pbe0, def2svp, 'Freq', d3bj, ts_str],
-                               hess=[pbe0, def2svp, 'Freq', d3bj],
-                               sp=[pbe0, def2tzvp, d3bj],
-                               ecp=def2tzecp)
+        keywords = KeywordsSet(
+            low_opt=[pbe0, def2svp, "Opt=Loose", d3bj, MaxOptCycles(10)],
+            grad=[pbe0, def2svp, "Force(NoStep)", d3bj],
+            low_sp=[pbe0, def2svp, d3bj],
+            opt=[pbe0, def2svp, "Opt", d3bj],
+            opt_ts=[pbe0, def2svp, "Freq", d3bj, ts_str],
+            hess=[pbe0, def2svp, "Freq", d3bj],
+            sp=[pbe0, def2tzvp, d3bj],
+            ecp=def2tzecp,
+        )
 
         # Only SMD implemented
         implicit_solvation_type = solv.smd
@@ -264,41 +301,18 @@ class _ConfigClass:
         path = None
         #
         # Note that the default NWChem level is PBE0 and PBE rather than
-        # PBE0-D3BJ and PBE-D3BJ as only D3 is available
-        loose_opt_block = ('driver\n'
-                           '  gmax 0.002\n'
-                           '  grms 0.0005\n'
-                           '  xmax 0.01\n'
-                           '  xrms 0.007\n'
-                           '  eprec 0.00003\n'
-                           'end')
-
-        opt_block = ('driver\n'
-                     '  gmax 0.0003\n'
-                     '  grms 0.0001\n'
-                     '  xmax 0.004\n'
-                     '  xrms 0.002\n'
-                     '  eprec 0.000005\n'
-                     'end')
-
-        keywords = KeywordsSet(low_opt=[loose_opt_block, def2svp, pbe0, MaxOptCycles(10),
-                                        'task dft optimize'],
-                               grad=[def2svp, pbe0,
-                                     'task dft gradient'],
-                               low_sp=[def2svp, pbe0,
-                                       'task dft energy'],
-                               opt=[opt_block, def2svp, pbe0, MaxOptCycles(100),
-                                    'task dft optimize',
-                                    'task dft property'],
-                               opt_ts=[opt_block, def2svp, pbe0,
-                                       'task dft saddle',
-                                       'task dft freq',
-                                       'task dft property'],
-                               hess=[def2svp, pbe0,
-                                     'task dft freq'],
-                               sp=[def2tzvp, pbe0,
-                                   'task dft energy'],
-                               ecp=def2ecp)
+        # PBE0-D3BJ and PBE-D3BJ as only D3 is available. The optimisation
+        # keywords contain 'gradient' as the optimisation is driven by autodE
+        keywords = KeywordsSet(
+            low_opt=[def2svp, pbe0, MaxOptCycles(10), "task dft gradient"],
+            grad=[def2svp, pbe0, "task dft gradient"],
+            low_sp=[def2svp, pbe0, "task dft energy"],
+            opt=[def2svp, pbe0, MaxOptCycles(100), "task dft gradient"],
+            opt_ts=[def2svp, pbe0, MaxOptCycles(50), "task dft gradient"],
+            hess=[def2svp, pbe0, "task dft freq"],
+            sp=[def2tzvp, pbe0, "task dft energy"],
+            ecp=def2ecp,
+        )
 
         # Only SMD implemented
         implicit_solvation_type = solv.smd
@@ -331,7 +345,7 @@ class _ConfigClass:
         # Note: all optimisations at this low level will be in the gas phase
         # using the keywords_list specified here. Solvent in mopac is defined
         # by EPS and the dielectric
-        keywords = KeywordsSet(low_opt=['PM7', 'PRECISE'])
+        keywords = KeywordsSet(low_opt=["PM7", "PRECISE"])
         #
         # Only COSMO implemented
         implicit_solvation_type = solv.cosmo
@@ -345,14 +359,17 @@ class _ConfigClass:
         path = None
         #
         # Default set of keywords to use for different types of calculation
-        keywords = KeywordsSet(low_opt=[pbe0, def2svp, 'jobtype opt', MaxOptCycles(10), d3bj],
-                               grad=[pbe0, def2svp, 'jobtype force', d3bj],
-                               low_sp=[pbe0, def2svp, d3bj],
-                               opt=[pbe0, def2svp, 'jobtype opt', d3bj],
-                               opt_ts=[pbe0, def2svp, 'jobtype TS', d3bj],
-                               hess=[pbe0, def2svp, 'jobtype Freq', d3bj],
-                               sp=[pbe0, def2tzvp, d3bj],
-                               ecp=def2ecp)
+        keywords = KeywordsSet(
+            low_opt=[pbe0, def2svp, "jobtype opt", MaxOptCycles(10), d3bj],
+            grad=[pbe0, def2svp, "jobtype force", d3bj],
+            low_sp=[pbe0, def2svp, d3bj],
+            opt=[pbe0, def2svp, "jobtype opt", d3bj],
+            opt_ts=[pbe0, def2svp, "jobtype TS", d3bj],
+            hess=[pbe0, def2svp, "jobtype Freq", d3bj],
+            sp=[pbe0, def2tzvp, d3bj],
+            ecp=def2ecp,
+        )
+
         #
         # Only SMD is implemented
         implicit_solvation_type = solv.smd
@@ -365,16 +382,27 @@ class _ConfigClass:
         """Custom setters"""
 
         if not hasattr(self, key):
-            raise KeyError(f'Cannot set {key}. Not present in ade.Config')
+            raise KeyError(f"Cannot set {key}. Not present in ade.Config")
 
-        if key == 'max_core':
-            value = Allocation(value).to('MB')
+        if key == "max_core":
+            value = Allocation(value).to("MB")
 
-        if key in ('max_atom_displacement', 'min_step_size', 'max_step_size'):
+        if key == "freq_scale_factor":
+
+            if value is not None:
+                if not (0.0 < value <= 1.0):
+                    raise ValueError(
+                        "Cannot set the frequency scale factor "
+                        "outside of (0, 1]"
+                    )
+
+                value = float(value)
+
+        if key in ("max_atom_displacement", "min_step_size", "max_step_size"):
             if float(value) < 0:
-                raise ValueError(f'Distances cannot be negative. Had: {value}')
+                raise ValueError(f"Distances cannot be negative. Had: {value}")
 
-            value = Distance(value).to('ang')
+            value = Distance(value).to("ang")
 
         return super(_ConfigClass, self).__setattr__(key, value)
 

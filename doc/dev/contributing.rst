@@ -5,6 +5,7 @@ Contributing to autodE
 Contributions in any form are very much welcome. To make managing these
 easier, we kindly ask that you follow the guidelines below.
 
+
 Reporting a bug or suggesting changes/improvements
 ==================================================
 
@@ -49,7 +50,7 @@ The high-level view of the contributing workflow is:
 2. Implement changes and tests on your own fork on a given branch
    (``<gh-username>/autode:<branch-name>``).
 3. Create a new pull request on the main autodE repository from your
-   development branch onto ``autode:master``.
+   development branch onto ``autode:v1.X``, where `X` is the latest version.
 
 To learn more about GitHub forks and pull requests, read `Fork a
 repo <https://docs.github.com/en/get-started/quickstart/fork-a-repo>`__
@@ -60,6 +61,15 @@ on the GitHub docs.
 
 Guidelines for pull requests
 ----------------------------
+
+First, install from source in a new environment and setup
+`pre-commit <https://pre-commit.com/>`__ with::
+
+    $ git clone https://github.com/duartegroup/autodE.git && cd autodE
+    $ conda create -n ade python=3.9 --file requirements.txt --channel conda-forge
+    $ conda activate ade
+    $ pip install '.[dev]'
+    $ pre-commit install
 
 
 Forks instead of branches
@@ -76,8 +86,8 @@ Several, smaller pull requests instead of one big PR
 Smaller pull requests (PRs) are reviewed faster, and more accurately. We
 therefore encourage contributors to keep the set of changes within a
 single pull request as small as possible. If your pull request modifies
-more than 5 files, and/or several hundred lines of code, you should
-probably break it down into two or more pull requests.
+more than 5 files, and/or several hundred lines of code, please break it down
+into two or more pull requests.
 
 
 Pull requests are more than code

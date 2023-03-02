@@ -4,20 +4,20 @@ import numpy as np
 
 from copy import deepcopy
 from networkx.algorithms import isomorphism
-from typing import Optional, List
+from typing import Optional, List, Tuple
 from autode.utils import timeout
 import autode.exceptions as ex
 from scipy.spatial import distance_matrix
-from autode.atoms import metals
-from autode.bonds import get_avg_bond_length
+from autode.atoms import Atom, metals
 from autode.log import logger
 
 
 class MolecularGraph(nx.Graph):
-
     def __repr__(self):
-        return (f'MolecularGraph(|E| = {self.number_of_edges()}, '
-                f'|V| = {self.number_of_nodes()})')
+        return (
+            f"MolecularGraph(|E| = {self.number_of_edges()}, "
+            f"|V| = {self.number_of_nodes()})"
+        )
 
     @property
     def expected_planar_geometry(self) -> bool:
@@ -38,7 +38,7 @@ class MolecularGraph(nx.Graph):
                 # 1, 2 and 3-valent atoms must be planar
                 continue
 
-            if n_neighbours == 4 and self.nodes[node]['atom_label'] in metals:
+            if n_neighbours == 4 and self.nodes[node]["atom_label"] in metals:
                 # Metals e.g. Rh can be square planar
                 continue
 
@@ -46,28 +46,78 @@ class MolecularGraph(nx.Graph):
 
         return True
 
-    def is_isomorphic_to(self, other: 'MolecularGraph') -> bool:
+    @property
+    def eqm_bond_distance_matrix(self) -> np.ndarray:
+        """
+        An n_atoms x n_atoms matrix of ideal bond lengths. All non-bonded atoms
+        will have zero ideal bond lengths
+
+        -----------------------------------------------------------------------
+        Returns:
+            (np.ndarray): Matrix of bond lengths (Å)
+        """
+        logger.info("Getting ideal bond length matrix")
+
+        n_atoms = self.number_of_nodes()
+        matrix = np.zeros((n_atoms, n_atoms))
+
+        for (i, j) in self.edges:
+
+            r0 = self._covalent_radius(i) + self._covalent_radius(j)
+            matrix[i, j] = matrix[j, i] = float(r0)
+
+        return matrix
+
+    def _covalent_radius(self, i) -> "autode.values.Distance":
+        """Covalent radius of a node in the graph"""
+        return Atom(self.nodes[i]["atom_label"]).covalent_radius.to("Å")
+
+    def is_isomorphic_to(self, other: "MolecularGraph") -> bool:
         """Is this graph isomorphic to another?"""
 
         return is_isomorphic(self, other)
+
+    @property
+    def active_bonds(self) -> List[Tuple[int, int]]:
+        """
+        Extract the active bonds from the graph into a flat list of pairs
+        of atom indices
+        """
+        return [tuple(e) for e in self.edges if self.edges[e]["active"]]
+
+    def add_active_edge(self, u: int, v: int) -> None:
+        """
+        Add an 'active' edge between two atoms, where an active edge is one
+        that is made or broken in a reaction
+        """
+        logger.info("Getting molecular graph with active edges")
+
+        # The graph has both (i, j) and (j, i) edges thus order invariant
+        if (u, v) in self.edges:
+            self.edges[(u, v)]["active"] = True
+        else:
+            self.add_edge(u, v, pi=False, active=True)
+
+        _set_graph_attributes(self)
+        return None
 
     @property
     def node_matcher(self):
         """Default node matcher"""
 
         matcher = isomorphism.categorical_node_match(
-            attr=['atom_label', 'atom_class'],
-            default=['C', None]
+            attr=["atom_label", "atom_class"], default=["C", None]
         )
 
         return matcher
 
 
-def make_graph(species:                'autode.Species',
-               rel_tolerance:           float = 0.3,
-               bond_list:               Optional[List[tuple]] = None,
-               allow_invalid_valancies: bool = False
-               ) -> None:
+def make_graph(
+    species: "autode.Species",
+    rel_tolerance: float = 0.3,
+    bond_list: Optional[List[tuple]] = None,
+    allow_invalid_valancies: bool = False,
+) -> None:
     """
     Make the molecular graph from the 'bonds' determined on a distance criteria
     or a SMILES parser object. All attributes default to false::
@@ -88,7 +138,9 @@ def make_graph(species:                'autode.Species',
     Arguments:
         species:
 
-        rel_tolerance:
+        rel_tolerance: Relative tolerance on what is considered a bond. E.g
+                       0.3 means anything 1.3 x r0(i, j) is not 'bonded'.
+                       Subject to the other restrictions on valency
 
         bond_list: Explicit bonds between atoms, overriding any attempt to
                    evaluate bonds
@@ -102,20 +154,20 @@ def make_graph(species:                'autode.Species',
     """
 
     if species.n_atoms == 0:
-        raise ex.NoAtomsInMolecule('Could not build a molecular graph with no '
-                                   'atoms')
+        raise ex.NoAtomsInMolecule(
+            "Could not build a molecular graph with no " "atoms"
+        )
 
-    logger.info('Generating molecular graph with NetworkX')
+    logger.info("Generating molecular graph with NetworkX")
 
     graph = MolecularGraph()
 
     # Add the atoms to the graph all are initially assumed not to be
     # stereocenters
     for i, atom in enumerate(species.atoms):
-        graph.add_node(i,
-                       atom_label=atom.label,
-                       stereo=False,
-                       atom_class=atom.atom_class)
+        graph.add_node(
+            i, atom_label=atom.label, stereo=False, atom_class=atom.atom_class
+        )
 
     # If bonds are specified then add edges to the graph and return
     if bond_list is not None:
@@ -140,17 +192,18 @@ def make_graph(species:                'autode.Species',
                     continue
 
                 # Get r_avg for this X-Y bond e.g. C-C -> 1.5
-                avg_bond_length = get_avg_bond_length(species.atoms[i].label,
-                                                      species.atoms[j].label)
+                avg_bond_length = species.atoms.eqm_bond_distance(i, j)
 
                 # If the distance between atoms i and j are less or equal to
                 # 1.25x average length add a 'bond'
-                if (dist_mat[i, j] <= avg_bond_length * (1.0 + rel_tolerance)
-                        and (i, j) not in graph.edges):
+                if (
+                    dist_mat[i, j] <= avg_bond_length * (1.0 + rel_tolerance)
+                    and (i, j) not in graph.edges
+                ):
                     graph.add_edge(i, j, pi=False, active=False)
 
+    _set_graph_attributes(graph)
     species.graph = graph
-    set_graph_attributes(species)
 
     if not allow_invalid_valancies:
         remove_bonds_invalid_valancies(species)
@@ -194,11 +247,12 @@ def remove_bonds_invalid_valancies(species):
         if len(neighbours) <= max_valance:
             continue  # All is well
 
-        logger.warning(f'Atom {i} exceeds its maximal valence removing edges')
+        logger.warning(f"Atom {i} exceeds its maximal valence removing edges")
 
         # Get the atom indexes sorted by the closest to atom i
-        closest_atoms = sorted(neighbours,
-                               key=lambda k: species.distance(i, k))
+        closest_atoms = sorted(
+            neighbours, key=lambda k: species.distance(i, k)
+        )
 
         # Delete all the bonds to atom(s) j that are above the maximal valance
         for j in closest_atoms[max_valance:]:
@@ -207,46 +261,44 @@ def remove_bonds_invalid_valancies(species):
     return None
 
 
-def set_graph_attributes(species):
+def _set_graph_attributes(graph):
     """
     For a molecular species set the π bonds and stereocentres in the molecular
     graph.
-
-    ---------------------------------------------------------------------------
-    Arguments:
-        species (autode.species.Species):
     """
-    logger.info('Setting the π bonds in a species')
+    logger.info("Setting graph attributes, inc. the π bonds")
 
-    def is_idx_pi_atom(idx):
-        return species.atoms[idx].is_pi(valency=species.graph.degree[idx])
+    def is_idx_pi_atom(i):
+        return Atom(graph.nodes[i]["atom_label"]).is_pi(
+            valency=graph.degree[i]
+        )
 
-    for bond in species.graph.edges:
+    for bond in graph.edges:
         atom_i, atom_j = bond
 
         if all(is_idx_pi_atom(i) for i in bond):
-            species.graph.edges[atom_i, atom_j]['pi'] = True
+            graph.edges[atom_i, atom_j]["pi"] = True
 
-    logger.info('Setting the stereocentres in a species')
+    logger.info("Setting the stereocentres in a species")
     # List of atom indexes that are rings in the species
-    rings = find_cycles(species.graph)
+    rings = find_cycles(graph)
 
-    for (i, j) in species.graph.edges:
+    for (i, j) in graph.edges:
 
-        if species.graph.edges[(i, j)]['pi'] is False:
+        if graph.edges[(i, j)]["pi"] is False:
             continue
 
         if any(i in ring for ring in rings):
             # The ring should define the stereochemistry of this pi bond
             continue
 
-        if is_chiral_pi_bond(species, bond=(i, j)):
-            species.graph.nodes[i]['stereo'] = True
-            species.graph.nodes[j]['stereo'] = True
+        if _is_stereo_pi_bond(graph, bond=(i, j)):
+            graph.nodes[i]["stereo"] = True
+            graph.nodes[j]["stereo"] = True
 
-    for i in range(species.n_atoms):
-        if is_chiral_atom(species, atom_index=i):
-            species.graph.nodes[i]['stereo'] = True
+    for i in graph.nodes:
+        if _is_chiral_atom(graph, atom_index=int(i)):
+            graph.nodes[i]["stereo"] = True
 
     return None
 
@@ -272,8 +324,9 @@ def species_are_isomorphic(species1, species2):
     Returns:
         (bool):
     """
-    logger.info(f'Checking if {species1.name} and {species2.name} are '
-                f'isomorphic')
+    logger.info(
+        f"Checking if {species1.name} and {species2.name} are " f"isomorphic"
+    )
 
     if species1.graph is None or species2.graph is None:
         raise ex.NoMolecularGraph
@@ -282,7 +335,7 @@ def species_are_isomorphic(species1, species2):
         return True
 
     if species1.n_conformers == species2.n_conformers == 0:
-        logger.warning('Cannot check for isomorphic species conformers')
+        logger.warning("Cannot check for isomorphic species conformers")
         return False
 
     # Conformers don't necessarily have molecular graphs, so make them all
@@ -332,15 +385,17 @@ def graph_matcher(graph1: MolecularGraph, graph2: MolecularGraph):
         (nx.GraphMatcher)
     """
     # Match on active edges too, with the default being false
-    edge_match = isomorphism.categorical_edge_match('active', False)
+    edge_match = isomorphism.categorical_edge_match("active", False)
 
-    gm = isomorphism.GraphMatcher(graph1, graph2,
-                                  node_match=graph1.node_matcher,
-                                  edge_match=edge_match)
+    gm = isomorphism.GraphMatcher(
+        graph1, graph2, node_match=graph1.node_matcher, edge_match=edge_match
+    )
     return gm
 
 
-def is_subgraph_isomorphic(larger_graph, smaller_graph):
+def is_subgraph_isomorphic(
+    larger_graph: MolecularGraph, smaller_graph: MolecularGraph
+):
     """
     Is the smaller graph subgraph isomorphic to the larger graph?
 
@@ -353,7 +408,7 @@ def is_subgraph_isomorphic(larger_graph, smaller_graph):
     Returns:
         (bool)
     """
-    logger.info('Running subgraph isomorphism')
+    logger.info("Running subgraph isomorphism")
 
     gm = graph_matcher(larger_graph, smaller_graph)
     if gm.subgraph_is_isomorphic():
@@ -362,7 +417,9 @@ def is_subgraph_isomorphic(larger_graph, smaller_graph):
     return False
 
 
-def get_mapping_ts_template(larger_graph, smaller_graph):
+def get_mapping_ts_template(
+    larger_graph: MolecularGraph, smaller_graph: MolecularGraph
+):
     """
     Find the mapping for a graph onto a TS template (smaller). Can raise
     StopIteration with no match!
@@ -376,7 +433,7 @@ def get_mapping_ts_template(larger_graph, smaller_graph):
     Returns:
         (dict): Mapping
     """
-    logger.info('Getting mapping of molecule onto the TS template')
+    logger.info("Getting mapping of molecule onto the TS template")
 
     gm = graph_matcher(larger_graph, smaller_graph)
 
@@ -396,11 +453,10 @@ def get_mapping(graph1, graph2):
     Returns:
         (dict)
     """
-    logger.info('Running isomorphism')
+    logger.info("Running isomorphism")
 
-    node_match = isomorphism.categorical_node_match('atom_label', 'C')
-    gm = isomorphism.GraphMatcher(graph1, graph2,
-                                  node_match=node_match)
+    node_match = isomorphism.categorical_node_match("atom_label", "C")
+    gm = isomorphism.GraphMatcher(graph1, graph2, node_match=node_match)
 
     try:
         mapping = next(gm.match())
@@ -424,9 +480,9 @@ def reorder_nodes(graph, mapping):
     Returns:
         (nx.Graph)
     """
-    return nx.relabel_nodes(graph,
-                            mapping={u: v for v, u in mapping.items()},
-                            copy=True)
+    return nx.relabel_nodes(
+        graph, mapping={u: v for v, u in mapping.items()}, copy=True
+    )
 
 
 def get_graph_no_active_edges(graph):
@@ -442,8 +498,9 @@ def get_graph_no_active_edges(graph):
     """
 
     graph_no_ae = graph.copy()
-    active_edges = [edge for edge in graph.edges
-                    if graph.edges[edge]['active'] is True]
+    active_edges = [
+        edge for edge in graph.edges if graph.edges[edge]["active"] is True
+    ]
 
     for (i, j) in active_edges:
         graph_no_ae.remove_edge(i, j)
@@ -472,7 +529,7 @@ def get_graphs_ignoring_active_edges(graph1, graph2):
 
         for edge in ga.edges:
 
-            if ga.edges[edge]['active'] is False:
+            if ga.edges[edge]["active"] is False:
                 continue
 
             i, j = edge
@@ -485,10 +542,11 @@ def get_graphs_ignoring_active_edges(graph1, graph2):
 
 
 @timeout(seconds=5, return_value=False)
-def is_isomorphic(graph1:              MolecularGraph,
-                  graph2:              MolecularGraph,
-                  ignore_active_bonds: bool=False
-                  ) -> bool:
+def is_isomorphic(
+    graph1: MolecularGraph,
+    graph2: MolecularGraph,
+    ignore_active_bonds: bool = False,
+) -> bool:
     """Check whether two NX graphs are isomorphic. Contains a timeout because
     the gm.is_isomorphic() method occasionally gets stuck
 
@@ -514,15 +572,14 @@ def is_isomorphic(graph1:              MolecularGraph,
     node_matcher = graph1.node_matcher
 
     if ignore_active_bonds:
-        gm = isomorphism.GraphMatcher(graph1, graph2,
-                                      node_match=node_matcher)
+        gm = isomorphism.GraphMatcher(graph1, graph2, node_match=node_matcher)
 
     else:
         # Also match on edges
-        edge_match = isomorphism.categorical_edge_match('active', False)
-        gm = isomorphism.GraphMatcher(graph1, graph2,
-                                      node_match=node_matcher,
-                                      edge_match=edge_match)
+        edge_match = isomorphism.categorical_edge_match("active", False)
+        gm = isomorphism.GraphMatcher(
+            graph1, graph2, node_match=node_matcher, edge_match=edge_match
+        )
 
     return gm.is_isomorphic()
 
@@ -627,7 +684,7 @@ def get_bond_type_list(graph):
     bond_list_dict = {}
     atom_types = set()
 
-    for _, atom_label in graph.nodes.data('atom_label'):
+    for _, atom_label in graph.nodes.data("atom_label"):
         atom_types.add(atom_label)
 
     ordered_atom_labels = sorted(atom_types)
@@ -638,8 +695,8 @@ def get_bond_type_list(graph):
             bond_list_dict[key] = []
 
     for bond in graph.edges:
-        atom_i_label = graph.nodes[bond[0]]['atom_label']
-        atom_j_label = graph.nodes[bond[1]]['atom_label']
+        atom_i_label = graph.nodes[bond[0]]["atom_label"]
+        atom_j_label = graph.nodes[bond[1]]["atom_label"]
         key1, key2 = atom_i_label + atom_j_label, atom_j_label + atom_i_label
 
         if key1 in bond_list_dict.keys():
@@ -672,8 +729,8 @@ def get_fbonds(graph, key):
 
             if not (i, j) in bonds and not (j, i) in bonds:
                 bond = (i, j)
-                label_i = graph.nodes[bond[0]]['atom_label']
-                label_j = graph.nodes[bond[1]]['atom_label']
+                label_i = graph.nodes[bond[0]]["atom_label"]
+                label_j = graph.nodes[bond[1]]["atom_label"]
 
                 key1, key2 = label_i + label_j, label_j + label_i
 
@@ -681,40 +738,6 @@ def get_fbonds(graph, key):
                     possible_fbonds.append(bond)
 
     return possible_fbonds
-
-
-def set_active_mol_graph(species, active_bonds):
-    """
-    Get a molecular graph that includes 'active edges' i.e. bonds that are
-    either made or broken in the reaction
-
-    ---------------------------------------------------------------------------
-    Arguments:
-        species (autode.species.Species):
-
-        active_bonds: (list(tuple(int)))
-
-    """
-    logger.info('Getting molecular graph with active edges')
-    active_graph = species.graph.copy()
-
-    for bond in active_bonds:
-
-        # The graph has both (i, j) and (j, i) edges such that the order is
-        # not important
-        if bond in species.graph.edges:
-            active_graph.edges[bond]['active'] = True
-
-        else:
-            active_graph.add_edge(*bond, pi=False, active=True)
-
-    logger.info(f'Modified and added a total of {len(active_bonds)} bonds to '
-                f'the molecular graph')
-
-    species.graph = active_graph
-    set_graph_attributes(species)
-
-    return None
 
 
 def get_truncated_active_mol_graph(graph, active_bonds=None):
@@ -731,12 +754,15 @@ def get_truncated_active_mol_graph(graph, active_bonds=None):
 
     if active_bonds is None:
         # Molecular graph may already define the active edges
-        active_bonds = [pair for pair in graph.edges
-                        if graph.edges[pair]['active']]
+        active_bonds = [
+            pair for pair in graph.edges if graph.edges[pair]["active"]
+        ]
 
     if len(active_bonds) == 0:
-        raise ValueError('Could not generate truncated active molecular '
-                         'graph with no active bonds')
+        raise ValueError(
+            "Could not generate truncated active molecular "
+            "graph with no active bonds"
+        )
 
     t_graph = MolecularGraph()
 
@@ -746,8 +772,8 @@ def get_truncated_active_mol_graph(graph, active_bonds=None):
         for idx in bond:
             if idx not in t_graph.nodes:
 
-                label = graph.nodes[idx]['atom_label']
-                t_graph.add_node(idx,  atom_label=label)
+                label = graph.nodes[idx]["atom_label"]
+                t_graph.add_node(idx, atom_label=label)
 
         t_graph.add_edge(*bond, active=True, pi=False)
 
@@ -759,36 +785,42 @@ def get_truncated_active_mol_graph(graph, active_bonds=None):
         # don't already exist in the graph
         for n_atom_index in neighbours:
             if n_atom_index not in t_graph.nodes:
-                label = graph.nodes[n_atom_index]['atom_label']
+                label = graph.nodes[n_atom_index]["atom_label"]
                 t_graph.add_node(n_atom_index, atom_label=label)
 
             if (idx, n_atom_index) not in t_graph.edges:
-                t_graph.add_edge(idx, n_atom_index,
-                                 pi=False,
-                                 active=False)
+                t_graph.add_edge(idx, n_atom_index, pi=False, active=False)
 
-    logger.info(f'Truncated graph generated. {t_graph.number_of_nodes()} '
-                f'nodes and {t_graph.number_of_edges()} edges')
+    logger.info(
+        f"Truncated graph generated. {t_graph.number_of_nodes()} "
+        f"nodes and {t_graph.number_of_edges()} edges"
+    )
     return t_graph
 
 
-def is_chiral_pi_bond(species, bond):
+def _is_stereo_pi_bond(graph, bond):
     """Determine if a pi bond is chiral, by seeing if either atom has the same
-     group bonded to it twice"""
+    group bonded to it twice"""
 
     for i, atom in enumerate(bond):
-        neighbours = list(species.graph.neighbors(atom))
-        neighbours.remove(bond[1-i])
+        neighbours = list(graph.neighbors(atom))
+        neighbours.remove(bond[1 - i])
 
         if len(neighbours) != 2:
             return False
 
         graphs = []
         for neighbour in neighbours:
-            graph = species.graph.copy()
+            graph = graph.copy()
             graph.remove_edge(atom, neighbour)
             split_subgraphs = get_separate_subgraphs(graph)
-            graphs.append([subgraph for subgraph in split_subgraphs if neighbour in list(subgraph.nodes())][0])
+            graphs.append(
+                [
+                    subgraph
+                    for subgraph in split_subgraphs
+                    if neighbour in list(subgraph.nodes())
+                ][0]
+            )
 
         if is_isomorphic(graphs[0], graphs[1], ignore_active_bonds=True):
             return False
@@ -796,20 +828,26 @@ def is_chiral_pi_bond(species, bond):
     return True
 
 
-def is_chiral_atom(species, atom_index):
+def _is_chiral_atom(graph, atom_index):
     """Determine if an atom is chiral, by seeing if any of the bonded groups
     are the same"""
-    neighbours = list(species.graph.neighbors(atom_index))
+    neighbours = list(graph.neighbors(atom_index))
 
     if len(neighbours) != 4:
         return False
 
     graphs = []
     for neighbour in neighbours:
-        graph = species.graph.copy()
-        graph.remove_edge(atom_index, neighbour)
-        split_subgraphs = get_separate_subgraphs(graph)
-        graphs.append([subgraph for subgraph in split_subgraphs if neighbour in list(subgraph.nodes())][0])
+        _graph = graph.copy()
+        _graph.remove_edge(atom_index, neighbour)
+        split_subgraphs = get_separate_subgraphs(_graph)
+        graphs.append(
+            [
+                subgraph
+                for subgraph in split_subgraphs
+                if neighbour in list(subgraph.nodes())
+            ][0]
+        )
 
     for graph1, graph2 in itertools.combinations(graphs, 2):
         if is_isomorphic(graph1, graph2, ignore_active_bonds=True):

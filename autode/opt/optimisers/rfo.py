@@ -1,19 +1,15 @@
 import numpy as np
 from autode.log import logger
 from autode.utils import work_in_tmp_dir
-from autode.methods import get_lmethod
 from autode.opt.optimisers.base import NDOptimiser
 from autode.opt.coordinates import CartesianCoordinates
-from autode.opt.optimisers.hessian_update import BFGSUpdate, NullUpdate
+from autode.opt.optimisers.hessian_update import BFGSPDUpdate, NullUpdate
 
 
-class RFOOptimiser(NDOptimiser):
+class RFOptimiser(NDOptimiser):
     """Rational function optimisation in delocalised internal coordinates"""
 
-    def __init__(self,
-                 *args,
-                 init_alpha: float = 0.1,
-                 **kwargs):
+    def __init__(self, *args, init_alpha: float = 0.1, **kwargs):
         """
         Rational function optimiser (RFO) using a maximum step size of alpha
 
@@ -32,11 +28,11 @@ class RFOOptimiser(NDOptimiser):
         super().__init__(*args, **kwargs)
 
         self.alpha = init_alpha
-        self._hessian_update_types = [BFGSUpdate, NullUpdate]
+        self._hessian_update_types = [BFGSPDUpdate, NullUpdate]
 
     def _step(self) -> None:
         """RFO step"""
-        logger.info('Taking a RFO step')
+        logger.info("Taking a RFO step")
 
         self._coords.h_inv = self._updated_h_inv()
 
@@ -52,13 +48,13 @@ class RFOOptimiser(NDOptimiser):
         aug_H_lmda, aug_H_v = np.linalg.eigh(aug_H)
         # A RF step uses the eigenvector corresponding to the lowest non zero
         # eigenvalue
-        mode = np.where(np.abs(aug_H_lmda) > 1E-8)[0][0]
-        logger.info(f'Stepping along mode: {mode}')
+        mode = np.where(np.abs(aug_H_lmda) > 1e-16)[0][0]
+        logger.info(f"Stepping along mode: {mode}")
 
         # and the step scaled by the final element of the eigenvector
         delta_s = aug_H_v[:-1, mode] / aug_H_v[-1, mode]
 
-        self._coords = self._coords + self._sanitised_step(delta_s)
+        self._take_step_within_trust_radius(delta_s)
         return None
 
     def _initialise_run(self) -> None:
@@ -66,7 +62,9 @@ class RFOOptimiser(NDOptimiser):
         Initialise the energy, gradient, and initial Hessian to use
         """
 
-        self._coords = CartesianCoordinates(self._species.coordinates).to('dic')
+        self._coords = CartesianCoordinates(self._species.coordinates).to(
+            "dic"
+        )
         self._coords.update_h_from_cart_h(self._low_level_cart_hessian)
         self._coords.make_hessian_positive_definite()
         self._update_gradient_and_energy()
@@ -83,25 +81,47 @@ class RFOOptimiser(NDOptimiser):
         see e.g. (https://manual.q-chem.com/5.2/A1.S2.html). To ensure this
         condition is satisfied
         """
+        from autode.methods import get_lmethod
+
+        logger.info("Calculating low-level Hessian")
 
         species = self._species.copy()
-        species.calc_hessian(method=get_lmethod(),
-                             n_cores=self._n_cores)
+        species.calc_hessian(method=get_lmethod(), n_cores=self._n_cores)
 
         return species.hessian
 
-    def _sanitised_step(self, delta_s: np.ndarray) -> np.ndarray:
-        """Ensure the step to be taken isn't too large"""
+    def _take_step_within_trust_radius(
+        self, delta_s: np.ndarray, factor: float = 1.0
+    ) -> float:
+        """
+        Update the coordinates while ensuring the step isn't too large in
+        cartesian coordinates
 
-        max_step_component = np.max(np.abs(delta_s))
+        -----------------------------------------------------------------------
+        Arguments:
+            delta_s: Step in internal coordinates
 
-        if max_step_component > 100 * self.alpha:
-            raise RuntimeError('About to perform a huge unreasonable step!')
+        Returns:
+            factor: The coefficient of the step taken
+        """
 
-        if max_step_component > self.alpha:
-            logger.warning(f'Maximum component of the step '
-                           f'{max_step_component:.4} > {self.alpha:.4f} '
-                           f'. Scaling down')
-            delta_s *= self.alpha / max_step_component
+        if len(delta_s) == 0:  # No need to sanitise a null step
+            return 0.0
 
-        return delta_s
+        new_coords = self._coords + factor * delta_s
+        cartesian_delta = new_coords.to("cart") - self._coords.to("cart")
+        max_component = np.max(np.abs(cartesian_delta))
+
+        if max_component > self.alpha:
+            logger.info(
+                f"Calculated step is too large ({max_component:.3f} Å)"
+                f" - scaling down"
+            )
+
+            # Note because the transformation is not linear this will not
+            # generate a step exactly max(∆x) ≡ α, but is empirically close
+            factor = self.alpha / max_component
+            new_coords = self._coords + self.alpha / max_component * delta_s
+
+        self._coords = new_coords
+        return factor

@@ -1,4 +1,4 @@
-[![Build Status](https://github.com/duartegroup/autodE/actions/workflows/pytest.yml/badge.svg)](https://github.com/duartegroup/autodE/actions) [![codecov](https://codecov.io/gh/duartegroup/autodE/branch/master/graph/badge.svg)](https://codecov.io/gh/duartegroup/autodE/branch/master) [![Language grade: Python](https://img.shields.io/lgtm/grade/python/g/duartegroup/autodE.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/duartegroup/autodE/context:python) [![Language grade: C/C++](https://img.shields.io/lgtm/grade/cpp/g/duartegroup/autodE.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/duartegroup/autodE/context:cpp) [![Conda Recipe](https://img.shields.io/badge/recipe-autode-green.svg)](https://anaconda.org/conda-forge/autode) [![Conda Downloads](https://img.shields.io/conda/dn/conda-forge/autode.svg)](https://anaconda.org/conda-forge/autode)
+[![Build Status](https://github.com/duartegroup/autodE/actions/workflows/pytest.yml/badge.svg)](https://github.com/duartegroup/autodE/actions) [![codecov](https://codecov.io/gh/duartegroup/autodE/branch/master/graph/badge.svg)](https://codecov.io/gh/duartegroup/autodE/branch/master) [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black) [![GitHub CodeQL](https://github.com/duartegroup/autodE/actions/workflows/codeql.yml/badge.svg)](https://github.com/duartegroup/autodE/actions/workflows/codeql.yml) [![Conda Recipe](https://img.shields.io/badge/recipe-autode-green.svg)](https://anaconda.org/conda-forge/autode) [![Conda Downloads](https://img.shields.io/conda/dn/conda-forge/autode.svg)](https://anaconda.org/conda-forge/autode)
 
 ![alt text](autode/common/llogo.png)
 ***
@@ -11,7 +11,7 @@ Python wrappers for a range of electronic structure theory codes, SMILES parsing
 
 
 ### Dependencies
-* [Python](https://www.python.org/) > v. 3.6
+* [Python](https://www.python.org/) > v. 3.7
 * One of:
    * [ORCA](https://sites.google.com/site/orcainputlibrary/home/) > v. 4.0
    * [Gaussian09](https://gaussian.com/glossary/g09/)
@@ -92,3 +92,4 @@ If **autodE** is used in a publication please consider citing the [paper](https:
 - Kjell Jorner ([@kjelljorner](https://github.com/kjelljorner))
 - Thibault Lestang ([@tlestang](https://github.com/tlestang))
 - Domen Pregeljc ([@dpregeljc](https://github.com/dpregeljc))
+- Jonathon Vandezande ([@jevandezande](https://github.com/jevandezande))

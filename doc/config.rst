@@ -109,14 +109,14 @@ set the keywords to use. For example
   >>> kwds.low_opt = ['Opt', 'XTB2']
   >>> kwds.hess = ['NumFreq', 'XTB2']
   >>> kwds.grad = ['EnGrad', 'XTB2']
-  >>> kwds.opt_ts = ['OptTS', 'NumFreq', 'XTB2']
-  >>> kwds.optts_block = ('%geom\n'
-                          'NumHess true\n'
-                          'Calc_Hess true\n'
-                          'Recalc_Hess 30\n'
-                          'Trust -0.1\n'
-                          'MaxIter 150\n'
-                          'end')
+  >>> kwds.opt_ts = ['OptTS', 'NumFreq', 'XTB2\n',
+    '%geom\n'
+    'NumHess true\n'
+    'Calc_Hess true\n'
+    'Recalc_Hess 30\n'
+    'Trust -0.1\n'
+    'MaxIter 150\n'
+    'end']
 
 
 ------------
@@ -136,7 +136,7 @@ to see all the options.
 Logging
 -------
 
-To set the logging level to one of {INFO, WARNING, ERROR} set the :code:`AUTODE_LOG_LEVEL`
+To set the logging level to one of {DEBUG, INFO, WARNING, ERROR} set the :code:`AUTODE_LOG_LEVEL`
 environment variable, in bash::
 
     $ export AUTODE_LOG_LEVEL=INFO
