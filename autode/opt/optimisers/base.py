@@ -68,6 +68,7 @@ class Optimiser(BaseOptimiser, ABC):
 
         self._history = _OptimiserHistory()
 
+        self._prev_coords = coords
         self._coords = coords
         self._species: Optional["autode.species.Species"] = None
         self._method: Optional["autode.wrappers.methods.Method"] = None
@@ -130,10 +131,15 @@ class Optimiser(BaseOptimiser, ABC):
 
         while not self.converged:
 
+            self._prev_coords = self._coords
+
             self._callback(self._coords)
             self._step()  # Update self._coords
             self._update_gradient_and_energy()  # Update self._coords.g
-            self._log_convergence()
+            try:
+                self._log_convergence()
+            except Exception as e:
+                continue
 
             if self._exceeded_maximum_iteration:
                 break
@@ -211,8 +217,13 @@ class Optimiser(BaseOptimiser, ABC):
             keywords=self._method.keywords.grad,
             n_cores=self._n_cores,
         )
-        grad.run()
+        success = grad.run_with_except()
         grad.clean_up(force=True, everything=True)
+
+        if not success:
+            self._species.coordinates = self._prev_coords.to("cart")
+            self._maxiter = 0
+            return None
 
         if self._species.gradient is None:
             raise CalculationException(
@@ -548,6 +559,9 @@ class NDOptimiser(Optimiser, ABC):
         """
         if self._species is not None and self._species.n_atoms == 1:
             return True  # Optimisation 0 DOF is always converged
+        
+        if self._maxiter == 0:
+            return True
 
         if self._abs_delta_e < self.etol / 10:
             logger.warning(

@@ -55,7 +55,10 @@ class PRFOptimiser(CRFOptimiser):
         )
 
         if n_negative_eigenvalues < 1:
-            raise CalculationException("Lost imaginary (TS) mode")
+            logger.info("Lost imaginary (TS) mode")
+            self._species.coordinates = self._prev_coords.to("cart")
+            self._maxiter = 0
+            return None
 
         f = u.T.dot(self._coords.g[idxs])
         lambda_p = self._lambda_p_from_eigvals_and_gradient(b, f)

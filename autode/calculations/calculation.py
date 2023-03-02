@@ -118,6 +118,19 @@ class Calculation:
         self._add_to_comp_methods()
 
         return None
+    
+    def run_with_except(self) -> bool:
+        """Run the calculation using the EST method with exception handling"""
+        logger.info(f"Running calculation: {self.name}")
+
+        try:
+            self._executor.run()
+            self._check_properties_exist()
+            self._add_to_comp_methods()
+            return True
+        except Exception as e:
+            logger.info(e)
+            return False
 
     def clean_up(self, force: bool = False, everything: bool = False) -> None:
         """
